@@ -1,0 +1,158 @@
+# 2. Meta-analysis preparation
+```{r eval=FALSE}
+list.files(EHBS_path, pattern = "white.*rlm*")
+# [1] "white_A_frame_rlm.csv"          "white_ABETA_TAU_boxcox_rlm.csv" "white_PTAU_boxcox_rlm.csv"      "white_T_frame_rlm.csv"         
+# [5] "white_TAU_boxcox_rlm.csv"
+
+list.files(PPMI_path, pattern = "white.*rlm*")
+# [1] "white_A_frame_rlm.csv"          "white_abeta_boxcox_rlm.csv"     "white_abeta_tau_boxcox_rlm.csv"
+# [4] "white_ptau_boxcox_rlm.csv"      "white_T_frame_rlm.csv"          "white_tau_boxcox_rlm.csv"
+```
+
+## 1. Transform csv to txt
+```{r eval=FALSE}
+# EHBS
+target_file = list.files(path = EHBS_path, pattern = "white.*rlm*")
+for (i in target_file) {
+  # read data
+  path = file.path(EHBS_path, i)
+  dft = read.csv(path, row.names = 1)
+
+  # output file name
+  file_name = gsub("csv$", "txt", i)
+  file_name = paste("EHBS", file_name, sep = "_")
+  # output as .txt
+  path = file.path(METAL_data_path, file_name)
+  write.table(dft, path, row.names = F, quote = F, sep = ",")
+}
+```
+
+```{r eval=FALSE}
+# PPMI
+target_file = list.files(path = PPMI_path, pattern = "white.*rlm*")
+for (i in target_file) {
+  # read data
+  path = file.path(PPMI_path, i)
+  dft = read.csv(path, row.names = 1)
+
+  # output file name
+  file_name = gsub("csv$", "txt", i)
+  file_name = paste("PPMI", file_name, sep = "_")
+  # output as .txt
+  path = file.path(METAL_data_path, file_name)
+  write.table(dft, path, row.names = F, quote = F, sep = ",")
+}
+```
+
+## 2. Meta-analysis script
+```{r eval=FALSE}
+# EHBS
+list_EHBS = list.files(path = METAL_data_path, pattern = "EHBS.*rlm.*txt")
+# PPMI
+list_PPMI = list.files(path = METAL_data_path, pattern = "PPMI.*rlm.*txt")
+list_PPMI = list_PPMI[which(!grepl("abeta_boxcox", list_PPMI))]
+
+foreach(i = list_EHBS, j = list_PPMI) %do% {
+  # meta-analysis code file path
+  file_name = gsub("EHBS_", "", i)
+  path = file.path(METAL_code_path, file_name)
+  
+  # METAL output file name
+  file_name = gsub(".txt", "", file_name)
+  
+  # start to write meta-analysis code
+  sink(path)
+  
+  cat("
+# Meta-analysis weighted by standard error does not work well
+# because different studies used very different transformations
+# SCHEME   SAMPLESIZE
+SCHEME   STDERR
+STDERR   SE
+  
+# Input File Separators
+SEPARATOR  COMMA
+  
+# Not sure if genomic control is a good idea, given the large
+# number of true associations in these three regions ...
+# GENOMICCONTROL ON
+
+# To help identify allele flips, it can be useful to track
+# allele frequencies in the meta-analysis.
+# AVERAGEFREQ ON
+# MINMAXFREQ ON\n
+      ")
+  
+  cat("
+MARKER   CPG.Labels
+EFFECT   effect.size
+STDERR   std.error\n")
+  
+  # cat(paste("PROCESS", i))
+  cat(paste("PROCESS", i))
+  cat("\n")
+  
+cat("
+MARKER   CPG.Labels
+EFFECT   effect.size
+STDERR   std.error\n")
+
+# cat(paste("PROCESS", j))
+cat(paste("PROCESS", j))
+cat("\n")
+
+
+cat("\n")
+cat("# CARRY OUT AN INTERIM ANALYSIS OF THE FILES\n")
+# Set output file prefix and suffix to METAANALYSIS_[file_name]_ (e.g. METAANALYSIS_white_A_frame_rlm_) and .TBL
+cat(paste0("OUTFILE METAANALYSIS_", file_name, "_ .TBL", "\n\n"))
+# cat("ANALYZE")
+# cat("\n")
+# analyze and include heterogeneity
+cat("ANALYZE HETEROGENEITY")
+
+  sink()
+  closeAllConnections()
+}
+```
+
+## 3. Meta-analysis METAL code
+```{r eval=FALSE, message=TRUE}
+metal_file = list.files(METAL_code_path, pattern = "white.*rlm.*txt")
+for (i in metal_file) {
+  temp = paste0("metal ", i)
+  message(temp)
+}
+# metal white_A_frame_rlm.txt
+# metal white_ABETA_TAU_boxcox_rlm.txt
+# metal white_PTAU_boxcox_rlm.txt
+# metal white_T_frame_rlm.txt
+# metal white_TAU_boxcox_rlm.txt
+```
+
+# 3. METAL results
+## 1. Tranform METAL results .TBL to .csv
+```{r eval=FALSE}
+list_file = list.files(METAL_result_path, pattern = "*rlm.*_1.TBL$")
+for (i in list_file) {
+  # read
+  path = file.path(METAL_result_path, i)
+  dft = read.table(path, header = T, sep='\t')
+  # remove if there is ? in direction
+  dft = dft %>% filter(!grepl("\\?", Direction))
+  
+  # fdr pvalue
+  dft = dft %>% mutate(fdr = p.adjust(`P.value`, method = 'fdr'))
+  # sort by pvalue
+  dft = dft %>% arrange(P.value)
+  
+  # save as .csv
+  file_name = gsub("_1.TBL", ".csv", i)
+  path = file.path(METAL_result_path, file_name)
+  write.csv(dft, path)
+  
+  if (sum(dft[["fdr"]] < 0.05) > 0) {print(paste(i, ", # of cpg sites with pvalue < 0.05 =", sum(dft[["fdr"]] < 0.05)))}
+}
+
+# [1] "METAANALYSIS_white_T_frame_rlm_1.TBL , # of cpg sites with pvalue < 0.05 = 1"
+```
