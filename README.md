@@ -1,2 +1,2 @@
-# _meta_analysis_METAL
+# 7_meta_analysis_METAL
 The pre-process code for meta-analysis of METAL input
